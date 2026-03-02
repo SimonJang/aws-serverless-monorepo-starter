@@ -1,16 +1,17 @@
 #!/usr/bin/env node
-import { createRequire } from 'module';
+import { readFileSync } from 'fs';
 import fs from 'fs/promises';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import winston from 'winston';
 import yargs from 'yargs/yargs';
 import { hideBin } from 'yargs/helpers';
 import { spawnSync } from 'child_process';
-import inquirer from 'inquirer';
+import { select, input } from '@inquirer/prompts';
 
-const require = createRequire(import.meta.url);
-const {
-  repository: { url: repoUrl },
-} = require('../package.json');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+const repoUrl = pkg.repository.url;
 
 const TEMPLATE_STARTER_TEMP_FOLDER = './.template-starter-temp';
 
@@ -18,8 +19,6 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
   format: winston.format.combine(winston.format.simple(), winston.format.cli()),
 });
-
-const prompt = inquirer.createPromptModule();
 
 // Needs Git v2.22
 
@@ -40,7 +39,7 @@ const isEmptyBranch = () => {
   try {
     exec('git', '--no-pager', 'log');
     return false;
-  } catch (e) {
+  } catch {
     return true;
   }
 };
@@ -97,41 +96,26 @@ const getRepoBranchNames = async (repo) => {
 const askSetupArgs = async () => {
   logger.info('Welcome to the guided setup of your new node project.');
   const defaultRepoBranches = await getRepoBranchNames(repoUrl);
-  const { template } = await prompt([
-    {
-      type: 'list',
-      name: 'template',
-      message: 'Which template do you want to use?',
-      choices: [...defaultRepoBranches, 'custom'],
-    },
-  ]);
+  const template = await select({
+    message: 'Which template do you want to use?',
+    choices: [...defaultRepoBranches, 'custom'].map((c) => ({ name: c, value: c })),
+  });
+
   if (template !== 'custom') {
-    return {
-      repo: repoUrl,
-      branch: template,
-    };
+    return { repo: repoUrl, branch: template };
   }
 
-  const { repo } = await prompt([
-    {
-      type: 'input',
-      name: 'repo',
-      message: 'Which repository should be used? (note: HTTP authentication is not yet supported)',
-    },
-  ]);
+  const repo = await input({
+    message: 'Which repository should be used? (note: HTTP authentication is not yet supported)',
+  });
+
   const customRepoBranches = await getRepoBranchNames(repo, true);
-  const { customTemplate } = await prompt([
-    {
-      type: 'list',
-      name: 'customTemplate',
-      message: 'Which template do you want to use of your custom repository?',
-      choices: customRepoBranches,
-    },
-  ]);
-  return {
-    repo,
-    branch: customTemplate,
-  };
+  const customTemplate = await select({
+    message: 'Which template do you want to use of your custom repository?',
+    choices: customRepoBranches.map((c) => ({ name: c, value: c })),
+  });
+
+  return { repo, branch: customTemplate };
 };
 
 const script = async (args) => {
@@ -148,7 +132,7 @@ const script = async (args) => {
   logger.info('Coming soon...');
 };
 
-const options = yargs(hideBin(process.argv))
+const options = await yargs(hideBin(process.argv))
   .option('guided', {
     description: 'Whether to use a guided deploy. Bypasses all other supplied arguments.',
     boolean: true,
@@ -161,6 +145,7 @@ const options = yargs(hideBin(process.argv))
     default: false,
     alias: 'v',
   })
-  .alias('h', 'help').argv;
+  .alias('h', 'help')
+  .parse();
 
 script(options).catch(logger.error);

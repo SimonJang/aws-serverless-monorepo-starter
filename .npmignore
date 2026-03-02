@@ -1,5 +1,4 @@
-.eslintignore
-.eslintrc.cjs
+eslint.config.js
 .nvmrc
 .prettierignore
-.prettierrc.cjs
+.prettierrc.json
